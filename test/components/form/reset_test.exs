@@ -6,9 +6,12 @@ defmodule Surface.Components.Form.ResetTest do
   import ComponentTestHelper
 
   test "empty reset" do
-    code = """
-    <Reset />
-    """
+    code =
+      quote do
+        ~H"""
+        <Reset />
+        """
+      end
 
     assert render_live(code) =~ """
            <input type="reset" value="Reset"/>
@@ -16,19 +19,47 @@ defmodule Surface.Components.Form.ResetTest do
   end
 
   test "setting the value" do
-    code = """
-    <Reset value="ResetTheForm" />
-    """
+    code =
+      quote do
+        ~H"""
+        <Reset value="ResetTheForm" />
+        """
+      end
 
     assert render_live(code) =~ """
            <input type="reset" value="ResetTheForm"/>
            """
   end
 
+  test "setting the class" do
+    code =
+      quote do
+        ~H"""
+        <Reset class="button" />
+        """
+      end
+
+    assert render_live(code) =~ ~r/class="button"/
+  end
+
+  test "setting multiple classes" do
+    code =
+      quote do
+        ~H"""
+        <Reset class="button primary" />
+        """
+      end
+
+    assert render_live(code) =~ ~r/class="button primary"/
+  end
+
   test "passing other options" do
-    code = """
-    <Reset opts={{ id: "myid", autofocus: "autofocus" }} />
-    """
+    code =
+      quote do
+        ~H"""
+        <Reset opts={{ id: "myid", autofocus: "autofocus" }} />
+        """
+      end
 
     assert render_live(code) =~ """
            <input autofocus="autofocus" id="myid" type="reset" value="Reset"/>
@@ -36,9 +67,12 @@ defmodule Surface.Components.Form.ResetTest do
   end
 
   test "blur event with parent live view as target" do
-    code = """
-    <Reset value="ResetTheForm" blur="my_blur" />
-    """
+    code =
+      quote do
+        ~H"""
+        <Reset value="ResetTheForm" blur="my_blur" />
+        """
+      end
 
     assert render_live(code) =~ """
            <input phx-blur="my_blur" type="reset" value="ResetTheForm"/>
@@ -46,9 +80,12 @@ defmodule Surface.Components.Form.ResetTest do
   end
 
   test "focus event with parent live view as target" do
-    code = """
-    <Reset value="ResetTheForm" focus="my_focus" />
-    """
+    code =
+      quote do
+        ~H"""
+        <Reset value="ResetTheForm" focus="my_focus" />
+        """
+      end
 
     assert render_live(code) =~ """
            <input phx-focus="my_focus" type="reset" value="ResetTheForm"/>
@@ -56,9 +93,12 @@ defmodule Surface.Components.Form.ResetTest do
   end
 
   test "capture click event with parent live view as target" do
-    code = """
-    <Reset value="ResetTheForm" capture_click="my_click" />
-    """
+    code =
+      quote do
+        ~H"""
+        <Reset value="ResetTheForm" capture_click="my_click" />
+        """
+      end
 
     assert render_live(code) =~ """
            <input phx-capture-click="my_click" type="reset" value="ResetTheForm"/>
@@ -66,9 +106,12 @@ defmodule Surface.Components.Form.ResetTest do
   end
 
   test "keydown event with parent live view as target" do
-    code = """
-    <Reset value="ResetTheForm" keydown="my_keydown" />
-    """
+    code =
+      quote do
+        ~H"""
+        <Reset value="ResetTheForm" keydown="my_keydown" />
+        """
+      end
 
     assert render_live(code) =~ """
            <input phx-keydown="my_keydown" type="reset" value="ResetTheForm"/>
@@ -76,9 +119,12 @@ defmodule Surface.Components.Form.ResetTest do
   end
 
   test "keyup event with parent live view as target" do
-    code = """
-    <Reset value="ResetTheForm" keyup="my_keyup" />
-    """
+    code =
+      quote do
+        ~H"""
+        <Reset value="ResetTheForm" keyup="my_keyup" />
+        """
+      end
 
     assert render_live(code) =~ """
            <input phx-keyup="my_keyup" type="reset" value="ResetTheForm"/>

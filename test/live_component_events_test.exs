@@ -20,11 +20,11 @@ defmodule Surface.EventsTest do
   defmodule Button do
     use Surface.LiveComponent
 
-    property click, :event, default: "click"
+    prop click, :event, default: "click"
 
     def render(assigns) do
       ~H"""
-      <button :on-phx-click={{ @click }}>Click me!</button>
+      <button :on-click={{ @click }}>Click me!</button>
       """
     end
 
@@ -36,7 +36,7 @@ defmodule Surface.EventsTest do
   defmodule Panel do
     use Surface.LiveComponent
 
-    property buttonClick, :event, default: "click"
+    prop buttonClick, :event, default: "click"
 
     def render(assigns) do
       ~H"""
@@ -54,7 +54,7 @@ defmodule Surface.EventsTest do
   defmodule ButtonWithInvalidEvent do
     use Surface.LiveComponent
 
-    property click, :event
+    prop click, :event
 
     def render(assigns) do
       ~H"""
@@ -88,41 +88,50 @@ defmodule Surface.EventsTest do
 
     assert_html(
       html =~ """
-      <button data-phx-component="1" phx-click="click">Click me!</button>
+      <button data-phx-component="2" phx-click="click">Click me!</button>
       """
     )
   end
 
   test "handle event in parent component" do
-    code = """
-    <div>
-      <Panel id="panel_id"/>
-    </div>
-    """
+    code =
+      quote do
+        ~H"""
+        <div>
+          <Panel id="panel_id"/>
+        </div>
+        """
+      end
 
     assert render_live(code) =~ """
-           <button data-phx-component="1" phx-click="click" phx-target="0"\
+           <button data-phx-component="2" phx-click="click" phx-target="1"\
            """
   end
 
   test "handle event locally" do
-    code = """
-    <div>
-      <Button id="button_id"/>
-    </div>
-    """
+    code =
+      quote do
+        ~H"""
+        <div>
+          <Button id="button_id"/>
+        </div>
+        """
+      end
 
     assert render_live(code) =~ """
-           <button data-phx-component="0" phx-click="click" phx-target="0"\
+           <button data-phx-component="1" phx-click="click" phx-target="1"\
            """
   end
 
   test "override target" do
-    code = """
-    <div>
-      <Button id="button_id" click={{ %{name: "ok", target: "#comp"} }}/>
-    </div>
-    """
+    code =
+      quote do
+        ~H"""
+        <div>
+          <Button id="button_id" click={{ %{name: "ok", target: "#comp"} }}/>
+        </div>
+        """
+      end
 
     assert render_live(code) =~ """
            phx-click="ok" phx-target="#comp"\
@@ -130,23 +139,44 @@ defmodule Surface.EventsTest do
   end
 
   test "override target with keyword list notation" do
-    code = """
-    <div>
-      <Button id="button_id" click={{ "ok", target: "#comp" }}/>
-    </div>
+    expected = """
+    phx-click="ok" phx-target="#comp"\
     """
 
-    assert render_live(code) =~ """
-           phx-click="ok" phx-target="#comp"\
-           """
+    # Event name as string
+    code =
+      quote do
+        ~H"""
+        <div>
+          <Button id="button_id" click={{ "ok", target: "#comp" }}/>
+        </div>
+        """
+      end
+
+    assert render_live(code) =~ expected
+
+    # Event name as atom
+    code =
+      quote do
+        ~H"""
+        <div>
+          <Button id="button_id" click={{ :ok, target: "#comp" }}/>
+        </div>
+        """
+      end
+
+    assert render_live(code) =~ expected
   end
 
   test "passing event as nil does not render phx-*" do
-    code = """
-    <div>
-      <Button id="button_id" click={{ nil }}/>
-    </div>
-    """
+    code =
+      quote do
+        ~H"""
+        <div>
+          <Button id="button_id" click={{ nil }}/>
+        </div>
+        """
+      end
 
     html = render_live(code)
 
@@ -156,16 +186,19 @@ defmodule Surface.EventsTest do
   end
 
   test "raise error when passing an :event into a phx-* binding" do
-    code = """
-    <div>
-      <ButtonWithInvalidEvent id="button_id" click={{ "ok" }}/>
-    </div>
-    """
+    code =
+      quote do
+        ~H"""
+        <div>
+          <ButtonWithInvalidEvent id="button_id" click={{ "ok" }}/>
+        </div>
+        """
+      end
 
     message = """
     invalid value for "phx-click". LiveView bindings only accept values \
     of type :string. If you want to pass an :event, please use directive \
-    :on-phx-click instead. Expected a :string, got: %{name: "ok", target: :live_view}\
+    :on-click instead. Expected a :string, got: %{name: "ok", target: :live_view}\
     """
 
     assert_raise(RuntimeError, message, fn ->

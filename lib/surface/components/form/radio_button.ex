@@ -21,19 +21,16 @@ defmodule Surface.Components.Form.RadioButton do
   import Surface.Components.Form.Utils
 
   @doc "Indicates whether or not the radio button is the selected item in the group"
-  property checked, :boolean
-
-  context get form, from: Form, as: :form_context
-  context get field, from: Field, as: :field_context
+  prop checked, :boolean
 
   def render(assigns) do
-    form = get_form(assigns)
-    field = get_field(assigns)
     props = get_non_nil_props(assigns, [:checked, class: get_config(:default_class)])
     event_opts = get_events_to_opts(assigns)
 
     ~H"""
-    {{ radio_button(form, field, assigns[:value], props ++ @opts ++ event_opts) }}
+    <InputContext assigns={{ assigns }} :let={{ form: form, field: field }}>
+      {{ radio_button(form, field, assigns[:value], props ++ @opts ++ event_opts) }}
+    </InputContext>
     """
   end
 end

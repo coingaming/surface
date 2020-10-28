@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.1.0-rc.1 (2020-10-21)
+
+  * Fix support for Elixir >= v1.11
+  * Update liveview to latest v0.15-dev (597c5dd)
+  * Add undefined assign check for `Surface.{LiveComponent,Component,LiveView}`
+  * New form controls wrappers: `<DateTimeSelect>` and `<TimeSelect>`.
+  * Force recompilation of the parent component after fixing errors on any of its children.
+
+## v0.1.0-rc.0 (2020-10-06)
+
+  * Update LiveView to v0.15-dev (0f592a4).
+  * Make `<slot>` mandatory instead of `inner_content`.
+  * Add attribute `index` to `<slot>` to allow rendering individual named slot items.
+  * Rename macro `property` to `prop`.
+  * Remove macro `context` and add a `<Context>` component to be used instead.
+  * Rename directives `:on-phx-[event]` to `:on-[event]`.
+  * Add support for co-located template files using `.sface` suffix.
+  * Add `Surface.init/1` to initialize internal assigns when not using `Surface.LiveView`.
+  * Add `:props` directive to pass dynamic props to a component.
+  * Add `:attrs` directive to pass dynamic attributes to a tag.
+  * Add new modifiers `index` and `with_index` for `:for`.
+  * Update html tag generation to remove the tag if it's value computes to `nil`.
+  * Add support for a `transform/1` callback to allow components to manipulate its
+    own node at compile-time.
+  * New form controls: `<Inputs>`, `<Checkbox>`, `<Select>`, `<MultipleSelect>`,
+    `<HiddenInputs>`, `<FileInput>` and `<OptionsForSelect>`.
+
 ## v0.1.0-alpha.2 (2020-06-09)
 
   * New Markdown component

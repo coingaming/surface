@@ -20,17 +20,17 @@ defmodule Surface.Components.Form.TelephoneInput do
   import Phoenix.HTML.Form, only: [telephone_input: 3]
   import Surface.Components.Form.Utils
 
-  context get form, from: Form, as: :form_context
-  context get field, from: Field, as: :field_context
+  @doc "A regular expression to validate the entered value"
+  prop pattern, :string
 
   def render(assigns) do
-    form = get_form(assigns)
-    field = get_field(assigns)
     props = get_non_nil_props(assigns, [:value, :pattern, class: @default_class])
     event_opts = get_events_to_opts(assigns)
 
     ~H"""
-    {{ telephone_input(form, field, props ++ @opts ++ event_opts) }}
+    <InputContext assigns={{ assigns }} :let={{ form: form, field: field }}>
+      {{ telephone_input(form, field, props ++ @opts ++ event_opts) }}
+    </InputContext>
     """
   end
 end

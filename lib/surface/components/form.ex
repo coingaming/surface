@@ -17,41 +17,36 @@ defmodule Surface.Components.Form do
   alias Surface.Components.Raw
 
   @doc "Atom or changeset to inform the form data"
-  property for, :any, required: true
+  prop for, :any, required: true
 
   @doc "URL to where the form is submitted"
-  property action, :string, default: "#"
+  prop action, :string, default: "#"
 
   @doc "Keyword list with options to be passed down to `form_for/3`"
-  property opts, :keyword, default: []
+  prop opts, :keyword, default: []
 
   @doc "Triggered when the form is changed"
-  property change, :event
+  prop change, :event
 
   @doc "Triggered when the form is submitted"
-  property submit, :event
+  prop submit, :event
 
   @doc "The content of the `<form>`"
   slot default
 
-  @doc "The form instance initialized by the Form component"
-  context set form, :form
-
-  def init_context(assigns) do
-    opts =
-      assigns.opts ++
-        event_to_opts(assigns.change, :phx_change) ++
-        event_to_opts(assigns.submit, :phx_submit)
-
-    form = form_for(assigns.for, assigns.action, opts)
-    {:ok, form: form}
-  end
-
   def render(assigns) do
     ~H"""
-    {{ @form }}
-      <slot/>
+    {{ form = form_for(@for, @action, get_opts(assigns)) }}
+      <Context put={{ __MODULE__, form: form }}>
+        <slot/>
+      </Context>
     <#Raw></form></#Raw>
     """
+  end
+
+  defp get_opts(assigns) do
+    assigns.opts ++
+      event_to_opts(assigns.change, :phx_change) ++
+      event_to_opts(assigns.submit, :phx_submit)
   end
 end

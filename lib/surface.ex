@@ -24,6 +24,46 @@ defmodule Surface do
         end
       end
 
+  Additionally, use `Surface.init/1` in your mount function to initialize assigns used internally by surface:
+
+      # A LiveView using surface templates
+
+      defmodule PageLive do
+        use Phoenix.LiveView
+        import Surface
+
+        def mount(socket) do
+          socket = Surface.init(socket)
+          ...
+          {:ok, socket}
+        end
+
+        def render(assigns) do
+          ~H"\""
+          ...
+          "\""
+        end
+      end
+
+      # A LiveComponent using surface templates
+
+      defmodule NavComponent do
+        use Phoenix.LiveComponent
+        import Surface
+
+        def mount(socket) do
+          socket = Surface.init(socket)
+          ...
+          {:ok, socket}
+        end
+
+        def render(assigns) do
+          ~H"\""
+          ...
+          "\""
+        end
+      end
+
   ## Defining components
 
   To create a component you need to define a module and `use` one of the available component types:
@@ -40,8 +80,8 @@ defmodule Surface do
       defmodule Button do
         use Surface.Component
 
-        property click, :event
-        property kind, :string, default: "is-info"
+        prop click, :event
+        prop kind, :string, default: "is-info"
 
         def render(assigns) do
           ~H"\""
@@ -55,20 +95,28 @@ defmodule Surface do
   You can visit the documentation of each type of component for further explanation and examples.
   """
 
-  alias Surface.IOHelper
+  alias Phoenix.LiveView
 
   @doc """
   Translates Surface code into Phoenix templates.
   """
-  defmacro sigil_H({:<<>>, _, [string]}, _) do
+  defmacro sigil_H({:<<>>, _, [string]}, opts) do
+    # This will create accurate line numbers for heredoc usages of the sigil, but
+    # not for ~H* variants. See https://github.com/msaraiva/surface/issues/15#issuecomment-667305899
     line_offset = __CALLER__.line + 1
 
+    caller_is_surface_component =
+      Module.open?(__CALLER__.module) &&
+        Module.get_attribute(__CALLER__.module, :component_type) != nil
+
     string
-    |> Surface.Translator.run(line_offset, __CALLER__, __CALLER__.file)
-    |> EEx.compile_string(
-      engine: Phoenix.LiveView.Engine,
-      line: line_offset,
-      file: __CALLER__.file
+    |> Surface.Compiler.compile(line_offset, __CALLER__, __CALLER__.file,
+      checks: [no_undefined_assigns: caller_is_surface_component]
+    )
+    |> Surface.Compiler.to_live_struct(
+      debug: Enum.member?(opts, ?d),
+      file: __CALLER__.file,
+      line: __CALLER__.line
     )
   end
 
@@ -91,70 +139,16 @@ defmodule Surface do
     end
   end
 
-  @doc false
-  def component(module, assigns) do
-    module.render(assigns)
-  end
-
-  def component(module, assigns, []) do
-    module.render(assigns)
-  end
-
-  @doc false
-  def put_default_props(props, mod) do
-    Enum.reduce(mod.__props__(), props, fn %{name: name, opts: opts}, acc ->
-      default = Keyword.get(opts, :default)
-      Map.put_new(acc, name, default)
-    end)
+  @doc "Initialize surface state in the socket"
+  def init(socket) do
+    socket
+    |> LiveView.assign_new(:__surface__, fn -> %{} end)
+    |> LiveView.assign_new(:__context__, fn -> %{} end)
   end
 
   @doc false
-  def begin_context(props, current_context, mod) do
-    assigns = put_gets_into_assigns(props, current_context, mod.__context_gets__())
-
-    initialized_context_assigns =
-      with true <- function_exported?(mod, :init_context, 1),
-           {:ok, values} <- mod.init_context(assigns) do
-        Map.new(values)
-      else
-        false ->
-          []
-
-        {:error, message} ->
-          IOHelper.runtime_error(message)
-
-        result ->
-          IOHelper.runtime_error(
-            "unexpected return value from init_context/1. " <>
-              "Expected {:ok, keyword()} | {:error, String.t()}, got: #{inspect(result)}"
-          )
-      end
-
-    {assigns, new_context} =
-      put_sets_into_assigns_and_context(
-        assigns,
-        current_context,
-        initialized_context_assigns,
-        mod.__context_sets__()
-      )
-
-    assigns = Map.put(assigns, :__surface_context__, new_context)
-
-    {assigns, new_context}
-  end
-
-  @doc false
-  def end_context(context, mod) do
-    Enum.reduce(mod.__context_sets__(), context, fn %{name: name, opts: opts}, acc ->
-      to = Keyword.fetch!(opts, :to)
-      context_entry = acc |> Map.get(to, %{}) |> Map.delete(name)
-
-      if context_entry == %{} do
-        Map.delete(acc, to)
-      else
-        Map.put(acc, to, context_entry)
-      end
-    end)
+  def default_props(module) do
+    Enum.map(module.__props__(), fn %{name: name, opts: opts} -> {name, opts[:default]} end)
   end
 
   @doc false
@@ -180,162 +174,56 @@ defmodule Surface do
     end
   end
 
-  def attr_style(value, _show) do
-    IOHelper.runtime_error(
-      "invalid value for attribute \"style\". Expected a string " <>
-        "got: #{inspect(value)}"
+  # def attr_style(value, _show) do
+  #   IOHelper.runtime_error(
+  #     "invalid value for attribute \"style\". Expected a string " <>
+  #       "got: #{inspect(value)}"
+
+  def build_assigns(
+        context,
+        static_props,
+        dynamic_props,
+        slot_props,
+        slots,
+        module,
+        node_alias
+      ) do
+    static_prop_names = Keyword.keys(static_props)
+
+    dynamic_props =
+      (dynamic_props || [])
+      |> Enum.filter(fn {name, _} -> not Enum.member?(static_prop_names, name) end)
+      |> Enum.map(fn {name, value} ->
+        {name, Surface.TypeHandler.runtime_prop_value!(module, name, value, node_alias || module)}
+      end)
+
+    props = Keyword.merge(Keyword.merge(default_props(module), dynamic_props), static_props)
+
+    Map.new(
+      props ++
+        slot_props ++
+        [
+          __surface__: %{
+            slots: Map.new(slots),
+            provided_templates: Keyword.keys(slot_props)
+          },
+          __context__: context
+        ]
     )
   end
 
   @doc false
-  def css_class([value]) when is_list(value) do
-    css_class(value)
-  end
-
-  def css_class(value) when is_binary(value) do
-    value
-  end
-
   def css_class(value) when is_list(value) do
-    Enum.reduce(value, [], fn item, classes ->
-      case item do
-        {class, val} when val not in [nil, false] ->
-          maybe_add_class(classes, class)
-
-        class when is_binary(class) or is_atom(class) ->
-          maybe_add_class(classes, class)
-
-        _ ->
-          classes
-      end
-    end)
-    |> Enum.reverse()
-    |> Enum.join(" ")
-  end
-
-  def css_class(value) do
-    IOHelper.runtime_error(
-      "invalid value for property of type :css_class. " <>
-        "Expected a string or a keyword list, got: #{inspect(value)}"
-    )
-  end
-
-  @doc false
-  def boolean_attr(name, value) do
-    if value do
-      name
+    with {:ok, value} <- Surface.TypeHandler.CssClass.expr_to_value(value, []),
+         {:ok, string} <- Surface.TypeHandler.CssClass.value_to_html("class", value) do
+      string
     else
-      ""
+      _ ->
+        Surface.IOHelper.runtime_error(
+          "invalid value. " <>
+            "Expected a :css_class, got: #{inspect(value)}"
+        )
     end
-  end
-
-  @doc false
-  def keyword_value(key, value) do
-    if Keyword.keyword?(value) do
-      value
-    else
-      IOHelper.runtime_error(
-        "invalid value for property \"#{key}\". Expected a :keyword, got: #{inspect(value)}"
-      )
-    end
-  end
-
-  @doc false
-  def map_value(_key, value) when is_map(value) do
-    value
-  end
-
-  def map_value(key, value) do
-    if Keyword.keyword?(value) do
-      Map.new(value)
-    else
-      IOHelper.runtime_error(
-        "invalid value for property \"#{key}\". Expected a :map, got: #{inspect(value)}"
-      )
-    end
-  end
-
-  @doc false
-  def event_value(key, [event], caller_cid) do
-    event_value(key, event, caller_cid)
-  end
-
-  def event_value(key, [name | opts], caller_cid) do
-    event = Map.new(opts) |> Map.put(:name, name)
-    event_value(key, event, caller_cid)
-  end
-
-  def event_value(_key, nil, _caller_cid) do
-    nil
-  end
-
-  def event_value(_key, name, nil) when is_binary(name) do
-    %{name: name, target: :live_view}
-  end
-
-  def event_value(_key, name, caller_cid) when is_binary(name) do
-    %{name: name, target: to_string(caller_cid)}
-  end
-
-  def event_value(_key, %{name: _, target: _} = event, _caller_cid) do
-    event
-  end
-
-  def event_value(key, event, _caller_cid) do
-    IOHelper.runtime_error(
-      "invalid value for event \"#{key}\". Expected an :event or :string, got: #{inspect(event)}"
-    )
-  end
-
-  @doc false
-  def on_phx_event(phx_event, [event], caller_cid) do
-    on_phx_event(phx_event, event, caller_cid)
-  end
-
-  def on_phx_event(phx_event, [event | opts], caller_cid) do
-    value = Map.new(opts) |> Map.put(:name, event)
-    on_phx_event(phx_event, value, caller_cid)
-  end
-
-  def on_phx_event(phx_event, %{name: name, target: :live_view}, _caller_cid) do
-    [phx_event, "=", quot(name)]
-  end
-
-  def on_phx_event(phx_event, %{name: name, target: target}, _caller_cid) do
-    [phx_event, "=", quot(name), " phx-target=", quot(target)]
-  end
-
-  # Stateless component or a liveview (no caller_id)
-  def on_phx_event(phx_event, event, nil) when is_binary(event) do
-    [phx_event, "=", quot(event)]
-  end
-
-  def on_phx_event(phx_event, event, caller_cid) when is_binary(event) do
-    [phx_event, "=", quot(event), " phx-target=", to_string(caller_cid)]
-  end
-
-  def on_phx_event(_phx_event, nil, _caller_cid) do
-    []
-  end
-
-  def on_phx_event(phx_event, event, _caller_cid) do
-    IOHelper.runtime_error(
-      "invalid value for \":on-#{phx_event}\". " <>
-        "Expected a :string or :event, got: #{inspect(event)}"
-    )
-  end
-
-  @doc false
-  def phx_event(_phx_event, value) when is_binary(value) do
-    value
-  end
-
-  def phx_event(phx_event, value) do
-    IOHelper.runtime_error(
-      "invalid value for \"#{phx_event}\". LiveView bindings only accept values " <>
-        "of type :string. If you want to pass an :event, please use directive " <>
-        ":on-#{phx_event} instead. Expected a :string, got: #{inspect(value)}"
-    )
   end
 
   @doc false
@@ -351,53 +239,23 @@ defmodule Surface do
     []
   end
 
-  defp quot(value) do
-    [{:safe, "\""}, value, {:safe, "\""}]
-  end
-
-  defp put_gets_into_assigns(assigns, context, gets) do
-    Enum.reduce(gets, assigns, fn %{name: name, opts: opts}, acc ->
-      key = Keyword.get(opts, :as, name)
-      from = Keyword.fetch!(opts, :from)
-      # TODO: raise an error if it's required and it hasn't been set
-      value = context[from][name]
-      Map.put_new(acc, key, value)
-    end)
-  end
-
-  defp put_sets_into_assigns_and_context(assigns, context, values, sets) do
-    Enum.reduce(sets, {assigns, context}, fn %{name: name, opts: opts}, {assigns, context} ->
-      to = Keyword.fetch!(opts, :to)
-      scope = Keyword.get(opts, :scope)
-
-      case Map.fetch(values, name) do
-        {:ok, value} ->
-          new_context_entry =
-            context
-            |> Map.get(to, %{})
-            |> Map.put(name, value)
-
-          new_context = Map.put(context, to, new_context_entry)
-
-          new_assigns =
-            if scope == :only_children, do: assigns, else: Map.put(assigns, name, value)
-
-          {new_assigns, new_context}
-
-        :error ->
-          {assigns, context}
-      end
-    end)
-  end
-
-  defp maybe_add_class(classes, class) do
-    case class |> to_string() |> String.trim() do
-      "" ->
-        classes
-
-      class ->
-        [class | classes]
+  @doc false
+  defmacro prop_to_opts(prop_value, prop_name) do
+    quote do
+      prop_to_opts(unquote(prop_value), unquote(prop_name), __ENV__)
     end
+  end
+
+  @doc false
+  def prop_to_opts(nil, _prop_name, _caller) do
+    []
+  end
+
+  def prop_to_opts(prop_value, prop_name, caller) do
+    module = caller.module
+    meta = %{caller: caller, line: caller.line, node_alias: module}
+    {type, _opts} = Surface.TypeHandler.attribute_type_and_opts(module, prop_name, meta)
+    Surface.TypeHandler.attr_to_opts!(type, prop_name, prop_value)
   end
 
   defp get_components_config() do

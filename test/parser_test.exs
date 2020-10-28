@@ -1,7 +1,7 @@
-defmodule Surface.Translator.ParserTest do
+defmodule Surface.Compiler.ParserTest do
   use ExUnit.Case, async: true
 
-  import Surface.Translator.Parser
+  import Surface.Compiler.Parser
 
   test "empty node" do
     assert parse("") == {:ok, []}
@@ -61,7 +61,7 @@ defmodule Surface.Translator.ParserTest do
     assert node ==
              {"MyComponent",
               [
-                {"label", 'My label', %{line: 1, spaces: [" ", "", ""]}}
+                {"label", "My label", %{line: 1, spaces: [" ", "", ""]}}
               ], [], %{line: 1, space: ""}}
   end
 
@@ -147,8 +147,8 @@ defmodule Surface.Translator.ParserTest do
       assert node ==
                {"img",
                 [
-                  {"src", 'file.gif', %{line: 3, spaces: ["\n    ", "", ""]}},
-                  {"alt", 'My image', %{line: 4, spaces: ["\n    ", "", ""]}}
+                  {"src", "file.gif", %{line: 3, spaces: ["\n    ", "", ""]}},
+                  {"alt", "My image", %{line: 4, spaces: ["\n    ", "", ""]}}
                 ], [], %{line: 2, space: "\n  "}}
     end
   end
@@ -193,6 +193,26 @@ defmodule Surface.Translator.ParserTest do
                {:ok, [{:interpolation, "baz", %{line: 1}}]}
     end
 
+    test "with double curlies embedded" do
+      assert parse("{{ {{1, 3}, {4, 5}} }}") ==
+               {:ok, [{:interpolation, " {{1, 3}, {4, 5}} ", %{line: 1}}]}
+    end
+
+    test "with deeply nested curlies" do
+      assert parse("{{ {{{{{{{{{{}}}}}}}}}} }}") ==
+               {:ok, [{:interpolation, " {{{{{{{{{{}}}}}}}}}} ", %{line: 1}}]}
+    end
+
+    test "matched curlies for a map expression" do
+      assert parse("{{ %{a: %{b: 1}} }}") ==
+               {:ok, [{:interpolation, " %{a: %{b: 1}} ", %{line: 1}}]}
+    end
+
+    test "tuple without spaces between enclosing curlies" do
+      assert parse("{{{:a, :b}}}") ==
+               {:ok, [{:interpolation, "{:a, :b}", %{line: 1}}]}
+    end
+
     test "without root node but with text" do
       assert parse("foo {{baz}} bar") ==
                {:ok, ["foo ", {:interpolation, "baz", %{line: 1}}, " bar"]}
@@ -225,6 +245,46 @@ defmodule Surface.Translator.ParserTest do
                    %{line: 1, space: ""}}
                 ]}
     end
+
+    test "charlist with closing curly in tuple" do
+      assert parse("{{ 'a}}b' }}") ==
+               {:ok, [{:interpolation, " 'a}}b' ", %{line: 1}}]}
+    end
+
+    test "binary with closing curly in tuple" do
+      assert parse("{{ {{'a}}b'}} }}") ==
+               {:ok, [{:interpolation, " {{'a}}b'}} ", %{line: 1}}]}
+    end
+
+    test "double closing curly brace inside charlist" do
+      assert parse("{{ {{\"a}}b\"}} }}") ==
+               {:ok, [{:interpolation, " {{\"a}}b\"}} ", %{line: 1}}]}
+    end
+
+    test "double closing curly brace inside binary" do
+      assert parse("{{ \"a}}b\" }}") ==
+               {:ok, [{:interpolation, " \"a}}b\" ", %{line: 1}}]}
+    end
+
+    test "single-opening curly bracket inside single quotes" do
+      assert parse("{{ 'a{b' }}") ==
+               {:ok, [{:interpolation, " 'a{b' ", %{line: 1}}]}
+    end
+
+    test "single-opening curly bracket inside double quotes" do
+      assert parse("{{ \"a{b\" }}") ==
+               {:ok, [{:interpolation, " \"a{b\" ", %{line: 1}}]}
+    end
+
+    test "containing a charlist with escaped single quote" do
+      assert parse("{{ 'a\\'b' }}") ==
+               {:ok, [{:interpolation, " 'a\\'b' ", %{line: 1}}]}
+    end
+
+    test "containing a binary with escaped double quote" do
+      assert parse("{{ \"a\\\"b\" }}") ==
+               {:ok, [{:interpolation, " \"a\\\"b\" ", %{line: 1}}]}
+    end
   end
 
   describe "with macros" do
@@ -245,6 +305,11 @@ defmodule Surface.Translator.ParserTest do
 
       assert parse("<#foo>one</bar>two</baz>three</#foo>") ==
                {:ok, [{"#foo", [], ["one</bar>two</baz>three"], %{line: 1, space: ""}}]}
+    end
+
+    test "macro issue" do
+      assert parse("<#Macro/>") ==
+               {:ok, [{"#Macro", '', [], %{line: 1, space: ""}}]}
     end
 
     test "keep track of the line of the definition" do
@@ -279,6 +344,39 @@ defmodule Surface.Translator.ParserTest do
                {:error, "expected closing tag for \"foo\"", 1}
     end
 
+    test "missing closing tag" do
+      code = "<foo><bar></foo>"
+      assert parse(code) == {:error, "expected closing tag for \"bar\"", 1}
+
+      code = "<foo><Bar></foo>"
+      assert parse(code) == {:error, "expected closing tag for \"Bar\"", 1}
+
+      code = "<foo><Bar.Baz></foo>"
+      assert parse(code) == {:error, "expected closing tag for \"Bar.Baz\"", 1}
+
+      code = "<foo><Bar1></foo>"
+      assert parse(code) == {:error, "expected closing tag for \"Bar1\"", 1}
+
+      code = "<foo><Bar_1></foo>"
+      assert parse(code) == {:error, "expected closing tag for \"Bar_1\"", 1}
+
+      code = "<foo><bar-baz></foo>"
+      assert parse(code) == {:error, "expected closing tag for \"bar-baz\"", 1}
+
+      code = "<foo><#Bar></foo>"
+      assert parse(code) == {:error, "expected closing tag for \"#Bar\"", 1}
+
+      code = """
+      <foo>
+        text before
+        <div attr1="1" attr="2">
+        text after
+      </foo>
+      """
+
+      assert parse(code) == {:error, "expected closing tag for \"div\"", 3}
+    end
+
     test "tag mismatch" do
       assert parse("<foo>bar</baz>") ==
                {:error, "closing tag \"baz\" did not match opening tag \"foo\"", 1}
@@ -298,6 +396,11 @@ defmodule Surface.Translator.ParserTest do
       assert parse("<foo>{{bar</foo>") ==
                {:error, "expected closing for interpolation", 1}
     end
+
+    test "non-matched curlies inside interpolation" do
+      assert parse("<foo>{{bar { }}</foo>") ==
+               {:error, "expected closing for interpolation", 1}
+    end
   end
 
   describe "attributes" do
@@ -313,8 +416,8 @@ defmodule Surface.Translator.ParserTest do
       """
 
       attributes = [
-        {"prop1", 'value1', %{line: 2, spaces: ["\n  ", "", ""]}},
-        {"prop2", 'value2', %{line: 3, spaces: ["\n  ", "", ""]}}
+        {"prop1", "value1", %{line: 2, spaces: ["\n  ", "", ""]}},
+        {"prop2", "value2", %{line: 3, spaces: ["\n  ", "", ""]}}
       ]
 
       children = [
@@ -335,8 +438,8 @@ defmodule Surface.Translator.ParserTest do
       """
 
       attributes = [
-        {"prop1", 'value1', %{line: 2, spaces: ["\n  ", "", ""]}},
-        {"prop2", 'value2', %{line: 3, spaces: ["\n  ", "", ""]}}
+        {"prop1", "value1", %{line: 2, spaces: ["\n  ", "", ""]}},
+        {"prop2", "value2", %{line: 3, spaces: ["\n  ", "", ""]}}
       ]
 
       assert parse(code) == {:ok, [{"foo", attributes, [], %{line: 1, space: "\n"}}, "\n"]}
@@ -353,8 +456,8 @@ defmodule Surface.Translator.ParserTest do
       """
 
       attributes = [
-        {"prop1", 'value1', %{line: 2, spaces: ["\n  ", "", ""]}},
-        {"prop2", 'value2', %{line: 3, spaces: ["\n  ", "", ""]}}
+        {"prop1", "value1", %{line: 2, spaces: ["\n  ", "", ""]}},
+        {"prop2", "value2", %{line: 3, spaces: ["\n  ", "", ""]}}
       ]
 
       assert parse(code) ==
@@ -374,8 +477,8 @@ defmodule Surface.Translator.ParserTest do
 
       attributes = [
         {"prop1", true, %{line: 2, spaces: ["\n  ", "\n  "]}},
-        {"prop2", 'value 2', %{line: 3, spaces: ["", " ", " "]}},
-        {"prop3", {:attribute_expr, [" var3 "], %{line: 5}},
+        {"prop2", "value 2", %{line: 3, spaces: ["", " ", " "]}},
+        {"prop3", {:attribute_expr, " var3 ", %{line: 5}},
          %{line: 4, spaces: ["\n  ", " ", "\n    "]}},
         {"prop4", true, %{line: 6, spaces: ["\n  ", "\n"]}}
       ]
@@ -396,8 +499,8 @@ defmodule Surface.Translator.ParserTest do
 
       attributes = [
         {"prop1", true, %{line: 2, spaces: ["\n  ", "\n  "]}},
-        {"prop2", '2', %{line: 3, spaces: ["", " ", " "]}},
-        {"prop3", {:attribute_expr, [" var3 "], %{line: 5}},
+        {"prop2", "2", %{line: 3, spaces: ["", " ", " "]}},
+        {"prop3", {:attribute_expr, " var3 ", %{line: 5}},
          %{line: 4, spaces: ["\n  ", " ", "\n    "]}},
         {"prop4", true, %{line: 6, spaces: ["\n  ", "\n"]}}
       ]
@@ -414,9 +517,8 @@ defmodule Surface.Translator.ParserTest do
       """
 
       attributes = [
-        {"prop1", {:attribute_expr, [" var1 "], %{line: 2}},
-         %{line: 2, spaces: ["\n  ", "", ""]}},
-        {"prop2", {:attribute_expr, [" var2 "], %{line: 3}}, %{line: 3, spaces: ["\n  ", "", ""]}}
+        {"prop1", {:attribute_expr, " var1 ", %{line: 2}}, %{line: 2, spaces: ["\n  ", "", ""]}},
+        {"prop2", {:attribute_expr, " var2 ", %{line: 3}}, %{line: 3, spaces: ["\n  ", "", ""]}}
       ]
 
       assert parse(code) == {:ok, [{"foo", attributes, [], %{line: 1, space: "\n"}}, "\n"]}
@@ -453,6 +555,76 @@ defmodule Surface.Translator.ParserTest do
         {"prop2", true, %{line: 3, spaces: ["", "", ""]}},
         {"prop3", false, %{line: 4, spaces: ["\n  ", "", ""]}},
         {"prop4", true, %{line: 5, spaces: ["\n  ", "\n"]}}
+      ]
+
+      assert parse(code) == {:ok, [{"foo", attributes, [], %{line: 1, space: ""}}, "\n"]}
+    end
+
+    test "string values" do
+      code = """
+      <foo prop="str"/>
+      """
+
+      attr_value = "str"
+
+      attributes = [
+        {"prop", attr_value, %{line: 1, spaces: [" ", "", ""]}}
+      ]
+
+      assert parse(code) == {:ok, [{"foo", attributes, [], %{line: 1, space: ""}}, "\n"]}
+    end
+
+    test "empty string" do
+      code = """
+      <foo prop=""/>
+      """
+
+      attr_value = ""
+
+      attributes = [
+        {"prop", attr_value, %{line: 1, spaces: [" ", "", ""]}}
+      ]
+
+      assert parse(code) == {:ok, [{"foo", attributes, [], %{line: 1, space: ""}}, "\n"]}
+    end
+
+    test "string with embedded interpolation" do
+      code = """
+      <foo prop="before {{ var }} after"/>
+      """
+
+      attr_value = ["before ", {:attribute_expr, " var ", %{line: 1}}, " after"]
+
+      attributes = [
+        {"prop", attr_value, %{line: 1, spaces: [" ", "", ""]}}
+      ]
+
+      assert parse(code) == {:ok, [{"foo", attributes, [], %{line: 1, space: ""}}, "\n"]}
+    end
+
+    test "string with only an embedded interpolation" do
+      code = """
+      <foo prop="{{ var }}"/>
+      """
+
+      attr_value = [{:attribute_expr, " var ", %{line: 1}}]
+
+      attributes = [
+        {"prop", attr_value, %{line: 1, spaces: [" ", "", ""]}}
+      ]
+
+      assert parse(code) == {:ok, [{"foo", attributes, [], %{line: 1, space: ""}}, "\n"]}
+    end
+
+    test "interpolation with nested curlies" do
+      code = """
+      <foo prop={{ {{}} }}/>
+      """
+
+      attr_value = {:attribute_expr, " {{}} ", %{line: 1}}
+
+      attributes = [
+        {"prop", attr_value, %{line: 1, spaces: [" ", "", ""]}}
       ]
 
       assert parse(code) == {:ok, [{"foo", attributes, [], %{line: 1, space: ""}}, "\n"]}

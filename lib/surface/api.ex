@@ -21,7 +21,10 @@ defmodule Surface.API do
     :module,
     :changeset,
     :form,
-    :keyword
+    :keyword,
+    # Private
+    :context_put,
+    :context_get
   ]
 
   @private_opts [:action, :to]
@@ -30,10 +33,9 @@ defmodule Surface.API do
 
   defmacro __using__(include: include) do
     arities = %{
-      property: [2, 3],
+      prop: [2, 3],
       slot: [1, 2],
-      data: [2, 3],
-      context: [1]
+      data: [2, 3]
     }
 
     imports = for func <- include, arity <- arities[func], do: {func, arity}
@@ -52,6 +54,8 @@ defmodule Surface.API do
       # Any caller component can hold other components with slots
       Module.register_attribute(__MODULE__, :assigned_slots_by_parent, accumulate: false)
 
+      Module.put_attribute(__MODULE__, :use_context?, false)
+
       for func <- unquote(include) do
         Module.register_attribute(__MODULE__, func, accumulate: true)
         unquote(__MODULE__).init_func(func, __MODULE__)
@@ -63,7 +67,7 @@ defmodule Surface.API do
     generate_docs(env)
 
     [
-      quoted_property_funcs(env),
+      quoted_prop_funcs(env),
       quoted_slot_funcs(env),
       quoted_data_funcs(env),
       quoted_context_funcs(env)
@@ -71,13 +75,8 @@ defmodule Surface.API do
   end
 
   def __after_compile__(env, _) do
-    if !function_exported?(env.module, :init_context, 1) do
-      validate_has_init_context(env)
-    end
-
     if function_exported?(env.module, :__slots__, 0) do
       validate_slot_props_bindings!(env)
-      validate_required_slots!(env)
     end
   end
 
@@ -114,8 +113,8 @@ defmodule Surface.API do
   end
 
   @doc "Defines a property for the component"
-  defmacro property(name_ast, type_ast, opts_ast \\ []) do
-    build_assign_ast(:property, name_ast, type_ast, opts_ast, __CALLER__)
+  defmacro prop(name_ast, type_ast, opts_ast \\ []) do
+    build_assign_ast(:prop, name_ast, type_ast, opts_ast, __CALLER__)
   end
 
   @doc "Defines a slot for the component"
@@ -126,100 +125,6 @@ defmodule Surface.API do
   @doc "Defines a data assign for the component"
   defmacro data(name_ast, type_ast, opts_ast \\ []) do
     build_assign_ast(:data, name_ast, type_ast, opts_ast, __CALLER__)
-  end
-
-  @doc """
-  Sets or retrieves a context assign.
-
-  ### Usage
-
-  ```
-    context set name, type, opts \\ []
-    context get name, opts
-  ```
-
-  ### Examples
-
-  ```
-    context set form, :form
-    ...
-    context get form, from: Form
-  ```
-  """
-
-  # context get
-
-  defmacro context({:get, _, [name_ast, opts_ast]}) when is_list(opts_ast) do
-    opts_ast = [{:action, :get} | opts_ast]
-    build_assign_ast(:context, name_ast, :any, opts_ast, __CALLER__)
-  end
-
-  defmacro context({:get, _, [_name_ast, type]}) when type in @types do
-    message = """
-    cannot redefine the type of the assign when using action :get. \
-    The type is already defined by a parent component using action :set\
-    """
-
-    IOHelper.compile_error(message, __CALLER__.file, __CALLER__.line)
-  end
-
-  defmacro context({:get, _, [name_ast, invalid_opts_ast]}) do
-    build_assign_ast(:context, name_ast, :any, invalid_opts_ast, __CALLER__)
-  end
-
-  defmacro context({:get, _, [name_ast]}) do
-    opts_ast = [action: :get]
-    build_assign_ast(:context, name_ast, :any, opts_ast, __CALLER__)
-  end
-
-  defmacro context({:get, _, nil}) do
-    message = """
-    no name defined for context get
-
-    Usage: context get name, opts
-    """
-
-    IOHelper.compile_error(message, __CALLER__.file, __CALLER__.line)
-  end
-
-  # context set
-
-  defmacro context({:set, _, [name_ast, type_ast, opts_ast]}) when is_list(opts_ast) do
-    opts_ast = Keyword.merge(opts_ast, action: :set, to: __CALLER__.module)
-
-    build_assign_ast(:context, name_ast, type_ast, opts_ast, __CALLER__)
-  end
-
-  defmacro context({:set, _, [_name_ast, opts]}) when is_list(opts) do
-    message = "no type defined for context set. Type is required after the name."
-    IOHelper.compile_error(message, __CALLER__.file, __CALLER__.line)
-  end
-
-  defmacro context({:set, _, [name_ast, type_ast]}) do
-    opts_ast = [action: :set, to: __CALLER__.module]
-
-    build_assign_ast(:context, name_ast, type_ast, opts_ast, __CALLER__)
-  end
-
-  defmacro context({:set, _, [_name_ast]}) do
-    message = "no type defined for context set. Type is required after the name."
-    IOHelper.compile_error(message, __CALLER__.file, __CALLER__.line)
-  end
-
-  # invalid usage
-
-  defmacro context({_action, _, args}) when length(args) > 2 do
-    message = """
-    invalid use of context. Usage: `context get name, opts` \
-    or `context set name, type, opts \\ []`\
-    """
-
-    IOHelper.compile_error(message, __CALLER__.file, __CALLER__.line)
-  end
-
-  defmacro context({action, _, _}) do
-    message = "invalid context action. Expected :get or :set, got: #{Macro.to_string(action)}"
-    IOHelper.compile_error(message, __CALLER__.file, __CALLER__.line)
   end
 
   @doc false
@@ -240,40 +145,45 @@ defmodule Surface.API do
     name = Keyword.get(assign.opts, :as, assign.name)
     existing_assign = assigns[name]
 
-    if Keyword.get(assign.opts, :scope) != :only_children do
-      if existing_assign do
-        message = """
-        cannot use name \"#{assign.name}\". There's already \
-        a #{existing_assign.func} assign with the same name \
-        at line #{existing_assign.line}.#{suggestion_for_duplicated_assign(assign)}\
-        """
+    if existing_assign do
+      message = """
+      cannot use name \"#{assign.name}\". There's already \
+      a #{existing_assign.func} assign with the same name \
+      at line #{existing_assign.line}.\
+      """
 
-        IOHelper.compile_error(message, caller.file, assign.line)
-      else
-        assigns = Map.put(assigns, name, assign)
-        Module.put_attribute(caller.module, :assigns, assigns)
-      end
+      IOHelper.compile_error(message, caller.file, assign.line)
+    else
+      assigns = Map.put(assigns, name, assign)
+      Module.put_attribute(caller.module, :assigns, assigns)
     end
 
     Module.put_attribute(caller.module, assign.func, assign)
   end
 
-  defp suggestion_for_duplicated_assign(%{func: :context, opts: opts}) do
-    "\n\nHint: " <>
-      case Keyword.get(opts, :action) do
-        :set ->
-          """
-          if you only need this context assign in the child components, \
-          you can set option :scope as :only_children to solve the issue.\
-          """
+  def get_assigns(module) do
+    if Module.open?(module) do
+      module
+      |> Module.get_attribute(:assigns)
+      |> Kernel.||(%{})
+      |> Enum.map(fn {name, %{line: line}} -> {name, line} end)
+    else
+      data = if function_exported?(module, :__data__, 0), do: module.__data__(), else: []
+      props = if function_exported?(module, :__props__, 0), do: module.__props__(), else: []
+      slots = if function_exported?(module, :__slots__, 0), do: module.__slots__(), else: []
 
-        :get ->
-          "you can use the :as option to set another name for the context assign."
-      end
+      Enum.map(data ++ props ++ slots, fn %{name: name, line: line} -> {name, line} end)
+    end
   end
 
-  defp suggestion_for_duplicated_assign(_assign) do
-    ""
+  @doc false
+  def get_slots(module) do
+    used_slots =
+      for %{name: name, line: line} <- Module.get_attribute(module, :used_slot) || [] do
+        %{func: :slot, name: name, type: :any, doc: nil, opts: [], opts_ast: [], line: line}
+      end
+
+    (Module.get_attribute(module, :slot) || []) ++ used_slots
   end
 
   defp quoted_data_funcs(env) do
@@ -287,9 +197,9 @@ defmodule Surface.API do
     end
   end
 
-  defp quoted_property_funcs(env) do
+  defp quoted_prop_funcs(env) do
     props =
-      (Module.get_attribute(env.module, :property) || [])
+      (Module.get_attribute(env.module, :prop) || [])
       |> Enum.sort_by(&{&1.name != :id, !&1.opts[:required], &1.line})
 
     props_names = Enum.map(props, fn prop -> prop.name end)
@@ -314,13 +224,7 @@ defmodule Surface.API do
   end
 
   defp quoted_slot_funcs(env) do
-    used_slots =
-      for %{name: name, line: line} <- Module.get_attribute(env.module, :used_slot) || [] do
-        %{func: :slot, name: name, type: :any, doc: nil, opts: [], opts_ast: [], line: line}
-      end
-
-    slots = (Module.get_attribute(env.module, :slot) || []) ++ used_slots
-    slots = Enum.uniq_by(slots, & &1.name)
+    slots = env.module |> get_slots() |> Enum.uniq_by(& &1.name)
     slots_names = Enum.map(slots, fn slot -> slot.name end)
     slots_by_name = for p <- slots, into: %{}, do: {p.name, p}
 
@@ -360,30 +264,12 @@ defmodule Surface.API do
   end
 
   defp quoted_context_funcs(env) do
-    context = Module.get_attribute(env.module, :context) || []
-    {gets, sets} = Enum.split_with(context, fn c -> c.opts[:action] == :get end)
-    sets_in_scope = Enum.filter(sets, fn var -> var.opts[:scope] != :only_children end)
-    assigns = gets ++ sets_in_scope
+    use_context? = Module.get_attribute(env.module, :use_context?)
 
     quote do
       @doc false
-      def __context_gets__() do
-        unquote(Macro.escape(gets))
-      end
-
-      @doc false
-      def __context_sets__() do
-        unquote(Macro.escape(sets))
-      end
-
-      @doc false
-      def __context_sets_in_scope__() do
-        unquote(Macro.escape(sets_in_scope))
-      end
-
-      @doc false
-      def __context_assigns__() do
-        unquote(Macro.escape(assigns))
+      def __use_context__?() do
+        unquote(use_context?)
       end
     end
   end
@@ -482,8 +368,8 @@ defmodule Surface.API do
     end
   end
 
-  defp get_valid_opts(:property, _type, _opts) do
-    [:required, :default, :values]
+  defp get_valid_opts(:prop, _type, _opts) do
+    [:required, :default, :values, :accumulate]
   end
 
   defp get_valid_opts(:data, _type, _opts) do
@@ -492,26 +378,6 @@ defmodule Surface.API do
 
   defp get_valid_opts(:slot, _type, _opts) do
     [:required, :props]
-  end
-
-  defp get_valid_opts(:context, _type, opts) do
-    case Keyword.fetch!(opts, :action) do
-      :get ->
-        [:from, :as]
-
-      :set ->
-        [:scope]
-    end
-  end
-
-  defp get_required_opts(:context, _type, opts) do
-    case Keyword.fetch!(opts, :action) do
-      :get ->
-        [:from]
-
-      _ ->
-        []
-    end
   end
 
   defp get_required_opts(_func, _type, _opts) do
@@ -548,22 +414,8 @@ defmodule Surface.API do
      "invalid value for option :values. Expected a list of values, got: #{inspect(value)}"}
   end
 
-  defp validate_opt(:context, _type, :scope, value)
-       when value not in [:only_children, :self_and_children] do
-    message = """
-    invalid value for option :scope. Expected :only_children or :self_and_children, \
-    got: #{inspect(value)}
-    """
-
-    {:error, message}
-  end
-
-  defp validate_opt(:context, _type, :from, value) when not is_atom(value) do
-    {:error, "invalid value for option :from. Expected a module, got: #{inspect(value)}"}
-  end
-
-  defp validate_opt(:context, _type, :as, value) when not is_atom(value) do
-    {:error, "invalid value for option :as. Expected an atom, got: #{inspect(value)}"}
+  defp validate_opt(:prop, _type, :accumulate, value) when not is_boolean(value) do
+    {:error, "invalid value for option :accumulate. Expected a boolean, got: #{inspect(value)}"}
   end
 
   defp validate_opt(_func, _type, _key, _value) do
@@ -609,7 +461,7 @@ defmodule Surface.API do
 
   defp generate_props_docs(module) do
     docs =
-      for prop <- Module.get_attribute(module, :property) do
+      for prop <- Module.get_attribute(module, :prop) do
         doc = if prop.doc, do: " - #{prop.doc}.", else: ""
         opts = if prop.opts == [], do: "", else: ", #{format_opts(prop.opts_ast)}"
         "* **#{prop.name}** *#{inspect(prop.type)}#{opts}*#{doc}"
@@ -622,22 +474,6 @@ defmodule Surface.API do
 
     #{docs}
     """
-  end
-
-  defp validate_has_init_context(env) do
-    for var <- Module.get_attribute(env.module, :context) || [] do
-      if Keyword.get(var.opts, :action) == :set do
-        message = """
-        context assign \"#{var.name}\" not initialized. \
-        You should implement an init_context/1 callback and initialize its \
-        value by returning {:ok, #{var.name}: ...}\
-        """
-
-        IOHelper.warn(message, env, fn _ -> var.line end)
-      end
-    end
-
-    :ok
   end
 
   defp validate_slot_props_bindings!(env) do
@@ -674,17 +510,6 @@ defmodule Surface.API do
     end
 
     :ok
-  end
-
-  defp validate_required_slots!(env) do
-    for {{mod, _parent_node_id, parent_node_alias, line}, assigned_slots} <-
-          env.module.__assigned_slots_by_parent__(),
-        mod != nil,
-        name <- mod.__required_slots_names__(),
-        !MapSet.member?(assigned_slots, name) do
-      message = "missing required slot \"#{name}\" for component <#{parent_node_alias}>"
-      IOHelper.warn(message, env, fn _ -> line end)
-    end
   end
 
   defp pop_doc(module) do

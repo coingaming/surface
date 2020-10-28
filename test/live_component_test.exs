@@ -8,9 +8,9 @@ defmodule LiveComponentTest do
   @endpoint Endpoint
 
   defmodule StatelessComponent do
-    use Surface.LiveComponent
+    use Surface.Component
 
-    property label, :string
+    prop label, :string
 
     def render(assigns) do
       ~H"""
@@ -23,6 +23,7 @@ defmodule LiveComponentTest do
     use Surface.LiveComponent
 
     data label, :string, default: "Initial stateful"
+    data assigned_in_update, :any
 
     def update(_assigns, socket) do
       {:ok, assign(socket, assigned_in_update: "Assinged in update/2")}
@@ -30,7 +31,7 @@ defmodule LiveComponentTest do
 
     def render(assigns) do
       ~H"""
-      <div :on-phx-click="click" id="theDiv">{{ @label }} - {{ @assigned_in_update }}</div>
+      <div :on-click="click" id="theDiv">{{ @label }} - {{ @assigned_in_update }}</div>
       """
     end
 
@@ -58,7 +59,7 @@ defmodule LiveComponentTest do
   end
 
   defmodule InfoProvider do
-    use Surface.LiveComponent
+    use Surface.Component
 
     slot default, props: [:info]
 
@@ -67,30 +68,45 @@ defmodule LiveComponentTest do
 
       ~H"""
         <div>
-          {{ @inner_content.(info: info) }}
+          <slot :props={{ info: info }}/>
         </div>
       """
     end
   end
 
   defmodule InfoProviderWithoutSlotProps do
-    use Surface.LiveComponent
+    use Surface.Component
 
     def render(assigns) do
       ~H"""
         <div>
-          {{ @inner_content.([]) }}
+          <slot/>
         </div>
       """
     end
   end
 
+  defmodule LiveComponentWithEvent do
+    use Surface.LiveComponent
+
+    prop event, :event
+
+    def render(assigns) do
+      ~H"""
+      <button :on-click={{ @event }} />
+      """
+    end
+  end
+
   test "render content without slot props" do
-    code = """
-    <InfoProviderWithoutSlotProps>
-      <span>Hi there!</span>
-    </InfoProviderWithoutSlotProps>
-    """
+    code =
+      quote do
+        ~H"""
+        <InfoProviderWithoutSlotProps>
+          <span>Hi there!</span>
+        </InfoProviderWithoutSlotProps>
+        """
+      end
 
     assert render_live(code) =~ """
            <div><span>Hi there!</span></div>
@@ -98,14 +114,30 @@ defmodule LiveComponentTest do
   end
 
   test "render content with slot props" do
-    code = """
-    <InfoProvider :let={{ info: my_info }}>
-      <span>{{ my_info }}</span>
-    </InfoProvider>
-    """
+    code =
+      quote do
+        ~H"""
+        <InfoProvider :let={{ info: my_info }}>
+          <span>{{ my_info }}</span>
+        </InfoProvider>
+        """
+      end
 
     assert render_live(code) =~ """
            <div><span>Hi there!</span></div>
+           """
+  end
+
+  test "render stateful component with event" do
+    code =
+      quote do
+        ~H"""
+        <LiveComponentWithEvent event="click-event" id="button" />
+        """
+      end
+
+    assert render_live(code) =~ """
+           <button data-phx-component=\"1\" phx-click=\"click-event\"></button>
            """
   end
 

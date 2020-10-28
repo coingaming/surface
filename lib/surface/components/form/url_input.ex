@@ -20,17 +20,14 @@ defmodule Surface.Components.Form.UrlInput do
   import Phoenix.HTML.Form, only: [url_input: 3]
   import Surface.Components.Form.Utils
 
-  context get form, from: Form, as: :form_context
-  context get field, from: Field, as: :field_context
-
   def render(assigns) do
-    form = get_form(assigns)
-    field = get_field(assigns)
     props = get_non_nil_props(assigns, [:value, class: @default_class])
     event_opts = get_events_to_opts(assigns)
 
     ~H"""
-    {{ url_input(form, field, props ++ @opts ++ event_opts) }}
+    <InputContext assigns={{ assigns }} :let={{ form: form, field: field }}>
+      {{ url_input(form, field, props ++ @opts ++ event_opts) }}
+    </InputContext>
     """
   end
 end

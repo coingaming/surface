@@ -7,7 +7,7 @@ defmodule Surface.LiveComponent do
       defmodule Dialog do
         use Surface.LiveComponent
 
-        property title, :string, required: true
+        prop title, :string, required: true
 
         def mount(socket) do
           {:ok, assign(socket, show: false)}
@@ -52,21 +52,27 @@ defmodule Surface.LiveComponent do
 
   defmacro __using__(_) do
     quote do
+      @before_compile Surface.Renderer
       use Phoenix.LiveComponent
-      use Surface.BaseComponent, translator: Surface.Translator.LiveComponentTranslator
+
+      use Surface.BaseComponent, type: unquote(__MODULE__)
 
       @before_compile unquote(__MODULE__)
 
-      use Surface.API, include: [:property, :slot, :data, :context]
+      use Surface.API, include: [:prop, :slot, :data]
       import Phoenix.HTML
 
-      @behaviour unquote(__MODULE__)
-      @before_compile Surface.ContentHandler
+      alias Surface.Components.Context
+
+      @doc """
+      The id of the live component (required by LiveView for stateful components).
+      """
+      prop id, :string, required: true
     end
   end
 
   defmacro __before_compile__(env) do
-    [maybe_quoted_id(env), quoted_mount(env), quoted_update(env)]
+    [quoted_mount(env), quoted_update(env)]
   end
 
   defp quoted_update(env) do
@@ -74,8 +80,17 @@ defmodule Surface.LiveComponent do
       quote do
         defoverridable update: 2
 
+        def update(%{__surface__: surface, __context__: context} = assigns, socket) do
+          super(
+            assigns,
+            socket
+            |> Phoenix.LiveView.assign(:__surface__, surface)
+            |> Phoenix.LiveView.assign(:__context__, context)
+          )
+        end
+
         def update(assigns, socket) do
-          super(assigns, Phoenix.LiveView.assign(socket, :__surface__, assigns.__surface__))
+          super(assigns, socket)
         end
       end
     end
@@ -93,34 +108,22 @@ defmodule Surface.LiveComponent do
         defoverridable mount: 1
 
         def mount(socket) do
-          super(assign(socket, unquote(defaults)))
+          super(
+            socket
+            |> Surface.init()
+            |> assign(unquote(defaults))
+          )
         end
       end
     else
       quote do
         def mount(socket) do
-          {:ok, assign(socket, unquote(defaults))}
+          {:ok,
+           socket
+           |> Surface.init()
+           |> assign(unquote(defaults))}
         end
       end
     end
   end
-
-  defp maybe_quoted_id(env) do
-    if Module.defines?(env.module, {:handle_event, 3}) do
-      quote do
-        @doc """
-        The id of the live component (required by LiveView).
-        """
-        property id, :integer, required: true
-      end
-    end
-  end
-
-  @doc """
-  This optional callback is invoked in order to set up a
-  context that can be retrieved for any descendent component.
-  """
-  @callback init_context(props :: map()) :: map()
-
-  @optional_callbacks init_context: 1
 end

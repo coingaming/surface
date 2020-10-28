@@ -17,21 +17,12 @@ defmodule Surface.Components.MarkdownTest do
     """
 
     assert render_static(code) =~ """
-           <div>
+           <div>\
            <h1>
-             Head 1
-           </h1>
+           Head 1</h1>
            <p>
-             Bold: \
-
-             <strong>
-               bold
-             </strong>
-             \
-
-           Code: \
-
-           <code class="inline">code</code></p>
+           Bold: <strong>bold</strong>
+           Code: <code class="inline">code</code></p>
            </div>
            """
   end
@@ -46,10 +37,26 @@ defmodule Surface.Components.MarkdownTest do
     """
 
     assert render_static(code) =~ """
-           <div class="markdown">
+           <div class="markdown">\
            <h1>
-             Head 1
-           </h1>
+           Head 1</h1>
+           </div>
+           """
+  end
+
+  test "setting multiple classes" do
+    assigns = %{}
+
+    code = ~H"""
+    <#Markdown class="markdown small">
+      # Head 1
+    </#Markdown>
+    """
+
+    assert render_static(code) =~ """
+           <div class="markdown small">\
+           <h1>
+           Head 1</h1>
            </div>
            """
   end
@@ -65,8 +72,7 @@ defmodule Surface.Components.MarkdownTest do
 
     assert render_static(code) == """
            <h1>
-             Head 1
-           </h1>
+           Head 1</h1>
            """
   end
 
@@ -97,50 +103,54 @@ defmodule Surface.Components.MarkdownSyncTest do
   describe "config" do
     test ":default_class config" do
       using_config Markdown, default_class: "content" do
-        html =
-          render_live("""
-          <#Markdown>
-            # Head 1
-          </#Markdown>
-          """)
+        code =
+          quote do
+            ~H"""
+            <#Markdown>
+              # Head 1
+            </#Markdown>
+            """
+          end
 
-        assert html =~ """
+        assert render_live(code) =~ """
                <div class="content"><h1>
-                 Head 1
-               </h1></div>
+               Head 1</h1></div>
                """
       end
     end
 
     test "override the :default_class config" do
       using_config Markdown, default_class: "content" do
-        html =
-          render_live("""
-          <#Markdown class="markdown">
-            # Head 1
-          </#Markdown>
-          """)
+        code =
+          quote do
+            ~H"""
+            <#Markdown class="markdown">
+              # Head 1
+            </#Markdown>
+            """
+          end
 
-        assert html =~ """
+        assert render_live(code) =~ """
                <div class="markdown"><h1>
-                 Head 1
-               </h1></div>
+               Head 1</h1></div>
                """
       end
     end
 
     test ":default_opts config" do
       using_config Markdown, default_opts: [code_class_prefix: "language-"] do
-        html =
-          render_live(~S"""
-          <#Markdown>
-            ```elixir
-            var = 1
-            ```
-          </#Markdown>
-          """)
+        code =
+          quote do
+            ~H"""
+            <#Markdown>
+              ```elixir
+              var = 1
+              ```
+            </#Markdown>
+            """
+          end
 
-        assert html =~ """
+        assert render_live(code) =~ """
                <div><pre><code class="elixir language-elixir">var = 1</code></pre></div>
                """
       end
@@ -148,35 +158,37 @@ defmodule Surface.Components.MarkdownSyncTest do
 
     test "property opts gets merged with global config :opts (overriding existing keys)" do
       using_config Markdown, default_opts: [code_class_prefix: "language-", smartypants: false] do
-        html =
-          render_live("""
-          <#Markdown>
-            "Elixir"
-          </#Markdown>
-          """)
+        code =
+          quote do
+            ~H"""
+            <#Markdown>
+              "Elixir"
+            </#Markdown>
+            """
+          end
 
-        assert html =~ """
+        assert render_live(code) =~ """
                <div><p>
-                 &quot;Elixir&quot;
-               </p></div>
+               &quot;Elixir&quot;</p></div>
                """
 
-        html =
-          render_live("""
-          <#Markdown opts={{ smartypants: true }}>
-            "Elixir"
+        code =
+          quote do
+            ~H"""
+            <#Markdown opts={{ smartypants: true }}>
+              "Elixir"
 
-            ```elixir
-            code
-            ```
-          </#Markdown>
-          """)
+              ```elixir
+              code
+              ```
+            </#Markdown>
+            """
+          end
 
-        assert html =~
+        assert render_live(code) =~
                  """
                  <div><p>
-                   “Elixir”
-                 </p><pre><code class="elixir language-elixir">code</code></pre></div>
+                 “Elixir”</p><pre><code class="elixir language-elixir">code</code></pre></div>
                  """
       end
     end
@@ -186,12 +198,15 @@ defmodule Surface.Components.MarkdownSyncTest do
     test "do not accept runtime expressions" do
       assigns = %{class: "markdown"}
 
-      code = """
-      <#Markdown
-        class={{ @class }}>
-        # Head 1
-      </#Markdown>
-      """
+      code =
+        quote do
+          ~H"""
+          <#Markdown
+            class={{ @class }}>
+            # Head 1
+          </#Markdown>
+          """
+        end
 
       message = ~r"""
       code:2: invalid value for property "class"
@@ -213,13 +228,16 @@ defmodule Surface.Components.MarkdownSyncTest do
     test "show parsing errors/warnings at the right line" do
       assigns = %{class: "markdown"}
 
-      code = """
-      <#Markdown>
-        Text
-        Text `code
-        Text
-      </#Markdown>
-      """
+      code =
+        quote do
+          ~H"""
+          <#Markdown>
+            Text
+            Text `code
+            Text
+          </#Markdown>
+          """
+        end
 
       output =
         capture_io(:standard_error, fn ->
@@ -228,7 +246,7 @@ defmodule Surface.Components.MarkdownSyncTest do
 
       assert output =~ ~r"""
              Closing unclosed backquotes ` at end of input
-               code:3:\
+               code:2:\
              """
     end
   end

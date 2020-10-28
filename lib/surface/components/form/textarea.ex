@@ -21,22 +21,19 @@ defmodule Surface.Components.Form.TextArea do
   import Surface.Components.Form.Utils
 
   @doc "Specifies the visible number of lines in a text area"
-  property rows, :string
+  prop rows, :string
 
   @doc "Specifies the visible width of a text area"
-  property cols, :string
-
-  context get form, from: Form, as: :form_context
-  context get field, from: Field, as: :field_context
+  prop cols, :string
 
   def render(assigns) do
-    form = get_form(assigns)
-    field = get_field(assigns)
     props = get_non_nil_props(assigns, [:value, :rows, :cols, class: @default_class])
     event_opts = get_events_to_opts(assigns)
 
     ~H"""
-    {{ textarea(form, field, props ++ @opts ++ event_opts) }}
+    <InputContext assigns={{ assigns }} :let={{ form: form, field: field }}>
+      {{ textarea(form, field, props ++ @opts ++ event_opts) }}
+    </InputContext>
     """
   end
 end

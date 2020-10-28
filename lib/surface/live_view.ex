@@ -32,21 +32,23 @@ defmodule Surface.LiveView do
 
   defmacro __using__(opts) do
     quote do
-      use Surface.BaseComponent, translator: Surface.Translator.LiveViewTranslator
-      use Surface.API, include: [:property, :data]
+      use Surface.BaseComponent, type: unquote(__MODULE__)
+
+      use Surface.API, include: [:prop, :data]
       import Phoenix.HTML
 
+      @before_compile Surface.Renderer
       @before_compile unquote(__MODULE__)
 
       @doc "The id of the live view"
-      property id, :integer
+      prop id, :string, required: true
 
       @doc """
       The request info necessary for the view, such as params, cookie session info, etc.
       The session is signed and stored on the client, then provided back to the server
       when the client connects, or reconnects to the stateful view.
       """
-      property session, :map
+      prop session, :map
 
       use Phoenix.LiveView, unquote(opts)
     end
@@ -68,13 +70,21 @@ defmodule Surface.LiveView do
         defoverridable mount: 3
 
         def mount(params, session, socket) do
-          super(params, session, assign(socket, unquote(defaults)))
+          socket =
+            socket
+            |> Surface.init()
+            |> assign(unquote(defaults))
+
+          super(params, session, socket)
         end
       end
     else
       quote do
         def mount(_params, _session, socket) do
-          {:ok, assign(socket, unquote(defaults))}
+          {:ok,
+           socket
+           |> Surface.init()
+           |> assign(unquote(defaults))}
         end
       end
     end

@@ -22,28 +22,24 @@ defmodule Surface.Components.Form.RangeInput do
   import Surface.Components.Form.Utils
 
   @doc "Minimum value for the input"
-  property min, :string
+  prop min, :string
 
   @doc "Maximum value for the input"
-  property max, :string
+  prop max, :string
 
   @doc "Sets or returns the value of the step attribute of the slider control"
-  property step, :string
-
-  context get form, from: Form, as: :form_context
-  context get field, from: Field, as: :field_context
+  prop step, :string
 
   def render(assigns) do
-    form = get_form(assigns)
-    field = get_field(assigns)
-
     props =
       get_non_nil_props(assigns, [:value, :min, :max, :step, class: get_config(:default_class)])
 
     event_opts = get_events_to_opts(assigns)
 
     ~H"""
-    {{ range_input(form, field, props ++ @opts ++ event_opts) }}
+    <InputContext assigns={{ assigns }} :let={{ form: form, field: field }}>
+      {{ range_input(form, field, props ++ @opts ++ event_opts) }}
+    </InputContext>
     """
   end
 end

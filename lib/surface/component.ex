@@ -7,7 +7,7 @@ defmodule Surface.Component do
       defmodule Button do
         use Surface.Component
 
-        property click, :event
+        prop click, :event
 
         def render(assigns) do
           ~H"\""
@@ -27,24 +27,24 @@ defmodule Surface.Component do
   defmacro __using__(opts \\ []) do
     slot_name = Keyword.get(opts, :slot)
 
-    translator =
-      if slot_name do
-        validate_slot_name!(slot_name, __CALLER__)
-        Surface.Translator.SlotableTranslator
-      else
-        Surface.Translator.ComponentTranslator
-      end
+    if slot_name do
+      validate_slot_name!(slot_name, __CALLER__)
+    end
 
     quote do
+      @before_compile Surface.Renderer
       use Phoenix.LiveComponent
-      use Surface.BaseComponent, translator: unquote(translator)
-      use Surface.API, include: [:property, :slot, :context]
+
+      use Surface.BaseComponent, type: unquote(__MODULE__)
+
+      use Surface.API, include: [:prop, :slot, :data]
       import Phoenix.HTML
 
-      @behaviour unquote(__MODULE__)
-      @before_compile Surface.ContentHandler
+      @before_compile unquote(__MODULE__)
 
-      if unquote(translator) == Surface.Translator.SlotableTranslator do
+      alias Surface.Components.Context
+
+      if unquote(slot_name) != nil do
         def render(var!(assigns)) do
           ~H()
         end
@@ -65,11 +65,21 @@ defmodule Surface.Component do
     end
   end
 
-  @doc """
-  This optional callback is invoked in order to set up a
-  context that can be retrieved for any descendent component.
-  """
-  @callback init_context(props :: map()) :: {:ok, keyword} | {:error, String.t()}
+  defmacro __before_compile__(env) do
+    if Module.defines?(env.module, {:mount, 1}) do
+      quote do
+        defoverridable mount: 1
 
-  @optional_callbacks init_context: 1
+        def mount(socket) do
+          super(Surface.init(socket))
+        end
+      end
+    else
+      quote do
+        def mount(socket) do
+          {:ok, Surface.init(socket)}
+        end
+      end
+    end
+  end
 end
